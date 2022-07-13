@@ -26,17 +26,12 @@ int main() {
     TTFont *font;
 
     read_file("fonts/WenQuanYiMicroHeiMono-02.ttf", &memory, &size);
-    if (!(font = font_load(memory, size))) { printf("font load failed!\n");}
-    font_free(font);
-    free(memory);
+    if (!(font = font_load(memory, size))) {
+        printf("font load failed!\n");
+    }
 
-    read_file("fonts/FiraGO-Regular.ttf", &memory, &size);
-    if (!(font = font_load(memory, size))) { printf("font load failed!\n");}
-    font_free(font);
-    free(memory);
+    font_render(font, 0x12);
 
-    read_file("fonts/WenQuanYiMicroHei-01.ttf", &memory, &size);
-    if (!(font = font_load(memory, size))) { printf("font load failed!\n");}
     font_free(font);
     free(memory);
 
