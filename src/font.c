@@ -10,6 +10,11 @@ typedef struct {
 } TTFontTableGLYFIndex;
 
 typedef struct {
+    uint16_t indexToLocFormat;
+    uint16_t numGlyphs;
+} TTFontTableInfo;
+
+typedef struct {
     uint32_t offset;
     uint32_t length;
 } TTFontTable;
@@ -20,6 +25,7 @@ typedef struct {
     TTFontTable head;
     TTFontTable hmtx;
     TTFontTable loca;
+    TTFontTable maxp;
 } TTFontTables;
 
 struct TTFont{
@@ -28,9 +34,9 @@ struct TTFont{
     const uint8_t *ttf_bytes;
     TTFontTables tables;
     TTFontTableGLYFIndex glyf_index;
+    TTFontTableInfo info;
 };
 
-static uint32_t cmap_find(TTFont *font, uint32_t code);
 static int cmap_format0(TTFont *font, uint32_t offset);
 static int cmap_format4(TTFont *font, uint32_t offset);
 static int cmap_format6(TTFont *font, uint32_t offset);
@@ -88,21 +94,19 @@ int cmap_init(TTFont *font) {
     for (i = 0; i < num; ++i) {
         entry = font->tables.cmap.offset + 4 + i * 8;
         category = get_uint32(font, entry);
-//        platformID = get_uint16(font, entry);
-//        encodingID = get_uint16(font, entry + 2);
-
+//        DebugPrintf("read cmap %x\n", category)
         switch (category) {
-            case 0x0003: // Unicode platform Unicode BMP only
-            case 0x0301: // Windows platform Unicode BMP
+            case 0x00000003: // Unicode platform Unicode BMP only
+            case 0x00030001: // Windows platform Unicode BMP
                 offset[1] = get_uint32(font, entry + 4);
                 format[1] = get_uint16(font, font->tables.cmap.offset + offset[1]);
                 break;
-            case 0x0004: // Unicode platform  Unicode full repertoire
-            case 0x0310: // Windows platform  Unicode full repertoire
+            case 0x00000004: // Unicode platform  Unicode full repertoire
+            case 0x0003000a: // Windows platform  Unicode full repertoire
                 offset[0] = get_uint32(font, entry + 4);
                 format[0] = get_uint16(font, font->tables.cmap.offset + offset[0]);
                 break;
-            case 0x0100: // Macintosh platform
+            case 0x00010000: // Macintosh platform
                 offset[2] = get_uint32(font, entry + 4);
                 format[2] = get_uint16(font, font->tables.cmap.offset + offset[2]);
                 break;
@@ -142,10 +146,17 @@ int cmap_init(TTFont *font) {
 
 }
 
+int head_init(TTFont *font) {
+    font->info.indexToLocFormat = get_uint16(font, font->tables.head.offset + 50);
+    font->info.numGlyphs = get_uint16(font, font->tables.maxp.offset + 4);
+    DebugPrintf("head locFormat %d numGlyphs %d\n", font->info.indexToLocFormat, font->info.numGlyphs)
+    return 0;
+}
+
 int font_init(TTFont *font) {
     uint32_t magic_number = get_uint32(font, 0);
 
-    if (magic_number != 0x00010000 && magic_number != 0x74727565) {
+    if (magic_number != 0x00010000 && magic_number != 0x74727565 && magic_number != 0x4F54544F) {
         return -1;
     }
     // parse tables
@@ -170,6 +181,7 @@ int font_init(TTFont *font) {
             CASE_FONT_TABLE_TAG(head, 0x68656164)
             CASE_FONT_TABLE_TAG(hmtx, 0x686d7478)
             CASE_FONT_TABLE_TAG(loca, 0x6c6f6361)
+            CASE_FONT_TABLE_TAG(maxp, 0x6d617870)
             default:
                 // ignore
                 break;
@@ -177,7 +189,7 @@ int font_init(TTFont *font) {
         // @todo check tables
     }
 
-    if (cmap_init(font) < 0) {
+    if (head_init(font) < 0 || cmap_init(font) < 0) {
         return -2;
     }
 
@@ -213,15 +225,17 @@ void font_free_bitmap(TTFontBitmap *bitmap) {
 }
 
 int font_render(TTFont *font, uint32_t codepoint) {
-    uint32_t glyf = cmap_find(font, codepoint);
-    DebugPrintf("find glyf index %d\n", glyf)
+    uint32_t glyfOffset;
+    uint16_t shortCode = (uint16_t) codepoint;
+    uint32_t glyfIndex = font->glyf_index.plane1[shortCode];
+    DebugPrintf("find glyf index %d\n", glyfIndex)
+    if (font->info.indexToLocFormat == 0) {
+        glyfOffset = font->tables.loca.offset + (2 * glyfIndex);
+    } else {
+        glyfOffset = font->tables.loca.offset + (4 * glyfIndex);
+    }
+    DebugPrintf("glyf offset %d\n", glyfOffset)
     return 0;
-}
-
-static uint32_t cmap_find(TTFont *font, uint32_t code) {
-    if (code > 0xFFFF) return 0;
-    uint16_t shortCode = (uint16_t) code;
-    return font->glyf_index.plane1[shortCode];
 }
 
 static int cmap_format0(TTFont *font, uint32_t offset) {
@@ -238,8 +252,9 @@ static int cmap_format4(TTFont *font, uint32_t offset)
     int i, j, total = 0;
     uint16_t segCount, segCountX2, endCode, startCode, idRangeOffset;
     int16_t idDelta;
-    uint32_t tmpOffset, segArraySize;
+    uint32_t tmpOffset, tmpOffset2, segArraySize;
 
+    uint16_t tableLength = get_uint16(font, offset + 2);
     segCountX2 = get_uint16(font, offset + 6);
     segCount = segCountX2 / 2;
 
@@ -256,15 +271,19 @@ static int cmap_format4(TTFont *font, uint32_t offset)
 
         for (j = startCode; j <= endCode; ++j) {
             if (idRangeOffset > 0) {
-                tmpOffset += idRangeOffset + ((j - startCode) * 2);
-                font->glyf_index.plane1[j] = get_uint16(font, tmpOffset);
+                tmpOffset2 = tmpOffset + idRangeOffset + ((j - startCode) * 2);
+                if (tmpOffset2 > tableLength + offset) {
+                    DebugPrintf("cmap format4 warning charCode %d may not valid\n", j)
+                    continue;
+                }
+                font->glyf_index.plane1[j] = get_uint16(font, tmpOffset2);
             } else {
                 font->glyf_index.plane1[j] = j + idDelta;
             }
             total++;
         }
     }
-
+    DebugPrintf("cmap total %d\n", total)
     return 0;
 }
 
@@ -276,12 +295,13 @@ static int cmap_format6(TTFont *font, uint32_t offset)
     for (i = 0; i < entryCount; ++i) {
         font->glyf_index.plane1[firstCode + i] = get_uint16(font, offset + 10 + (2 * i));
     }
+    DebugPrintf("cmap format6 firstCode %d total %d\n", firstCode, entryCount)
     return 0;
 }
 
 static int cmap_format12(TTFont *font, uint32_t offset)
 {
-    uint32_t i, j, num, startCharCode, endCharCode, startGlyphID, tmpOffset;
+    uint32_t i, j, num, startCharCode, endCharCode, startGlyphID, tmpOffset, total = 0;
     num = get_uint32(font, offset + 12);
     for (i = 0; i < num; ++i) {
         tmpOffset = offset + 16 + (i * 12);
@@ -294,9 +314,13 @@ static int cmap_format12(TTFont *font, uint32_t offset)
         }
         for (j = startCharCode; j <= endCharCode; ++j) {
             if (j < 0xFFFF) {
+                total++;
                 font->glyf_index.plane1[j] = j - startCharCode + startGlyphID;
             }
         }
     }
+    DebugPrintf("cmap total %d\n", total)
     return 0;
 }
+
+
