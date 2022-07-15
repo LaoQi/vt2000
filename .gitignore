@@ -54,3 +54,8 @@ dkms.conf
 # clion
 cmake-build-debug
 .idea
+
+# vs
+.vs
+out
+CMakeSettings.json

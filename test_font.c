@@ -24,13 +24,14 @@ int main() {
     void * memory;
     size_t size;
     TTFont *font;
-
     read_file("fonts/WenQuanYiMicroHeiMono-02.ttf", &memory, &size);
+//    read_file("fonts/Ubuntu-Regular.ttf", &memory, &size);
+//    read_file("fonts/DinkieBitmap-9pxDemo.ttf", &memory, &size);
     if (!(font = font_load(memory, size))) {
         printf("font load failed!\n");
     }
 
-    font_render(font, 0x12);
+    font_render(font, 0x6b63);
 
     font_free(font);
     free(memory);
