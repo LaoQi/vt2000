@@ -94,6 +94,7 @@ _Noreturn DWORD WINAPI ThreadRender(LPVOID pParam)
 
     while (1)
     {
+        VT_Update();
         DrawBitmap();
         Sleep(1000/FPSDef);
     }
@@ -124,6 +125,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLi
                              WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
                              0, 0, ScreenWidth, ScreenHeight + titleBarHeight,
                              NULL, NULL, hInstance, NULL);
+
+    VT_Init(ScreenWidth, ScreenHeight);
 
     hdc = GetDC(hWnd);
     ShowWindow(hWnd, SW_SHOW);

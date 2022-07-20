@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "vt2000.h"
 #include "font.h"
 
 #define UCS_PLANE_RANGE 65536
@@ -28,6 +29,10 @@ typedef struct {
     TTFontTable maxp;
 } TTFontTables;
 
+typedef struct {
+
+} TTFontGLYFContext;
+
 struct TTFont{
     uint16_t font_size;
     size_t ttf_size;
@@ -35,6 +40,7 @@ struct TTFont{
     TTFontTables tables;
     TTFontTableGLYFIndex glyf_index;
     TTFontTableInfo info;
+    TTFontGLYFContext glyf_context;
 };
 
 static int cmap_format0(TTFont *font, uint32_t offset);
@@ -45,11 +51,6 @@ static int cmap_format12(TTFont *font, uint32_t offset);
 static inline uint8_t get_uint8(const TTFont* font, uint32_t offset)
 {
     return *(font->ttf_bytes + offset);
-}
-
-static inline uint8_t get_int8(const TTFont* font, uint32_t offset)
-{
-    return (int8_t) get_uint8(font, offset);
 }
 
 static inline uint16_t get_uint16(const TTFont* font, uint32_t offset)
@@ -186,9 +187,9 @@ int font_init(TTFont *font) {
                 // ignore
                 break;
         }
-        // @todo check tables
     }
-
+    // @todo check tables
+    DebugPrintf("Read tables offsets\n")
     if (head_init(font) < 0 || cmap_init(font) < 0) {
         return -2;
     }
@@ -198,9 +199,10 @@ int font_init(TTFont *font) {
 
 TTFont *font_load(const void *mem, size_t size) {
     TTFont *font;
-    if (!(font = calloc(1, sizeof *font))) {
+    if (!(font = VT_malloc(sizeof *font))) {
         return NULL;
     }
+    memset(font, 0, sizeof *font);
     font->ttf_bytes = mem;
     font->ttf_size = size;
     if (font_init(font) < 0) {
@@ -210,9 +212,9 @@ TTFont *font_load(const void *mem, size_t size) {
     return font;
 }
 
-void font_free(TTFont *ttFont){
-    if (!ttFont) return;
-    free(ttFont);
+void font_free(TTFont *font){
+    if (!font) return;
+    VT_free(font);
 }
 
 void font_set_size(TTFont *font, uint16_t size) {
@@ -221,7 +223,7 @@ void font_set_size(TTFont *font, uint16_t size) {
 
 void font_free_bitmap(TTFontBitmap *bitmap) {
     if (!bitmap) return;
-    free(bitmap);
+    VT_free(bitmap);
 }
 
 int font_render(TTFont *font, uint32_t codepoint) {
